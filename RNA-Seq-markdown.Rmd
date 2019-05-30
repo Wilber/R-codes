@@ -1,0 +1,502 @@
+---
+title: "Of Mice and 'Maters: Liver RNA-Seq Study from Mice Fed Red, Tangerine, or No Tomatoes"
+author: "Michael (Tomato) Dzakovich"
+date: "11/16/2018"
+output:
+  html_document:
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: true 
+---
+## Load all the libraries we'll need
+```{r, echo=FALSE}
+library(limma)
+library(Glimma)
+library(edgeR)
+library(Rsubread)
+library(RColorBrewer)
+library('limma')
+library('reshape2')
+library('gplots')
+library(Rsubread)
+library(DESeq2)
+library(topGO)
+library(org.Mm.eg.db)
+library(biomaRt)
+
+```
+
+## Set your working directory
+
+```{r, eval=F, echo=T}
+setwd("/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane1/")
+
+```
+
+
+## Let's build an index of the mouse genome 
+```{r, eval=F, echo=T}
+buildindex(basename="MouseRsubread_index",reference="GRCm38.p6.genome.fa")
+
+#Load our FASTQ files: 
+
+fastq.files.R1<-list.files(path = "/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane1/", pattern = "NM.*_R1_001.paired.fastq.gz$", full.names = TRUE)
+
+fastq.files.R2<-list.files(path = "/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane1/", pattern = "NM.*_R2_001.paired.fastq.gz$", full.names = TRUE)
+
+```
+
+>So why did we do this? An index is kind of like a map: it allows reads to be more efficiently aligned. 
+
+
+## Let's align the reads (Lane 1)
+```{r, eval=F, echo=T}
+#Map paired-end reads:
+align(index="MouseRsubread_index",readfile1 = fastq.files.R1 ,readfile2 = fastq.files.R2 ,type = "rna", nthreads = 28)
+
+#Check parameters used in alignment: 
+args(align)
+
+##Summary of proportion of read alignment: 
+Lane1bam.files <- list.files(path = "/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane1/", pattern = ".BAM$", full.names = TRUE)
+propsLane1<-propmapped(Lane1bam.files, properlyPaired=TRUE)
+write.table(props,"MousealignmentProportionsLane1Rsubread.txt", sep = "\t")
+```
+
+## Let's align the reads (Lane 2)
+```{r, eval=F, echo=T}
+#Change working directory
+setwd("/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane2/")
+#Make sure you copy the index you made to the Lane2 folder as well
+
+#Map paired-end reads:
+align(index="MouseRsubread_index",readfile1 = fastq.files.R1 ,readfile2 = fastq.files.R2 ,type = "rna", nthreads = 28)
+
+#Check parameters used in alignment: 
+args(align)
+
+##Summary of proportion of read alignment: 
+Lane12am.files <- list.files(path = "/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane2/", pattern = ".BAM$", full.names = TRUE)
+propsLane1<-propmapped(Lane1bam.files, properlyPaired=TRUE)
+write.table(props,"MousealignmentProportionsLane2Rsubread.txt", sep = "\t")
+```
+
+
+### Get BAM files from Lane 1
+```{r, eval=F, echo=T}
+#Get bam files:
+#Lane 1
+bam.filesLane1 <- list.files(path = "/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane1/", pattern = "NM.*.BAM$", full.names = TRUE) 
+
+
+#Get feature counts 
+fcLane1 <- featureCounts(bam.filesLane1, annot.ext = "gencode.vM17.annotation.gff3.gz", 
+                    isGTFAnnotationFile = TRUE, nthreads=28, isPairedEnd=TRUE, 
+                    GTF.featureType = "gene")
+
+annotationLane2<-(fcLane1$annotation)
+write.csv(annotationLane2, file="100918_Lane1Annotation.csv")
+
+propsLane1<-propmapped(bam.files, properlyPaired=TRUE)
+write.table(propsLane1,"Lane1MousealignmentProportionsRsubread.txt", sep = "\t")
+
+# See what slots are stored in fc
+names(fcLane1)
+
+## Take a look at the featurecounts stats
+fcLane1$stat
+annotationLane1<-(fcLane1$annotation)
+
+##Counts 
+head(fcLane1$counts)
+```
+
+
+###Get BAM files from Lane2
+```{r, eval=F, echo=T}
+#Lane 2 
+
+bam.filesLane2 <- list.files(path = "/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane2/", pattern = "NM.*.BAM$", full.names = TRUE)
+
+fcLane2 <- featureCounts(bam.filesLane2, annot.ext = "gencode.vM17.annotation.gff3.gz", 
+                         isGTFAnnotationFile = TRUE, nthreads=28, isPairedEnd=TRUE, 
+                         GTF.featureType = "gene")
+
+annotationLane2<-(fcLane2$annotation)
+write.csv(annotationLane2, file="100918_Lane2Annotation.csv")
+
+propsLane2<-propmapped(bam.files, properlyPaired=TRUE)
+write.table(propsLane2,"Lane2MousealignmentProportionsRsubread.txt", sep = "\t")
+
+## Take a look at the featurecounts stats
+fcLane2$stat
+annotationLane2<-(fcLane2$annotation)
+
+##Counts 
+head(fcLane2$counts)
+```
+
+
+##Testing for Lane Effects by MDS
+```{r}
+setwd("/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/Lane1/")
+
+#Import file of merged, untransformed counts for both lanes
+#I created this file manually by merging the raw count data from both lanes into one spreadsheet and then converted it to a text file for ease of uploading into RStudio. 
+
+MergedFC <- read.table("MergedCountData.txt", header=T)
+
+
+#Make PCA Plot
+
+
+
+treatment = c("Control","Control","Tangerine","Red","Control","Control","Red",
+              "Red","Control","Tangerine","Red","Red","Red","Red","Control",
+              "Control","Red","Control","Control","Tangerine","Tangerine",
+              "Tangerine","Tangerine","Red","Red","Red","Red","Control",
+              "Tangerine","Tangerine","Tangerine","Tangerine","Tangerine",
+              "Control","Tangerine","Control","Control","Control","Tangerine",
+             "Red","Control","Control","Red","Red","Control","Tangerine","Red",
+             "Red","Red","Red","Control","Control","Red","Control","Control",
+             "Tangerine","Tangerine","Tangerine","Tangerine","Red","Red","Red",
+             "Red","Control","Tangerine","Tangerine","Tangerine","Tangerine",
+             "Tangerine","Control","Tangerine","Control")
+
+lane = c("Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1",
+         "Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1",
+         "Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1",
+         "Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1",
+         "Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1","Lane 1",
+         "Lane 1","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2",
+         "Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2",
+         "Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2",
+         "Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2",
+         "Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2","Lane 2",
+         "Lane 2","Lane 2")
+
+#samplenames = c("NM.15.120_S12_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.122_S11_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.128_S3_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.133_S6_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.136_S10_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.137_S10_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.156_S5_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.157_S7_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.159_S9_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.160_S1_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.166_S8_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.170_S5_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.175_S6_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.177_S8_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.182_S10_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.183_S9_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.186_S7_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.188_S12_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.189_S11_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.192_S4_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.195_S3_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.197_S4_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.198_S3_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.199_S5_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.202_S7_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.203_S8_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.204_S6_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.208_S9_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.215_S4_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.216_S2_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.217_S2_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.225_S1_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.226_S1_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.240_S11_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.242_S2_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.245_S12_L001_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.120_S12_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.122_S11_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.128_S3_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.133_S6_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.136_S10_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.137_S10_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.156_S5_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.157_S7_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.159_S9_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.160_S1_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.166_S8_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.170_S5_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.175_S6_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.177_S8_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.182_S10_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.183_S9_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.186_S7_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.188_S12_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.189_S11_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.192_S4_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.195_S3_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.197_S4_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.198_S3_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.199_S5_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.202_S7_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.203_S8_l002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.204_S6_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.208_S9_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.215_S4_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.216_S2_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.217_S2_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.225_S1_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.226_S1_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.240_S11_L002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.242_S2_l002_R1_001.paired.fastq.gz.subread.BAM",	"NM.15.245_S12_L002_R1_001.paired.fastq.gz.subread.BAM")
+
+#You can also create the object "samplenames" and replace "treatment" in the code below creating the object "fac". Makes the figure crowded but allows you to see that pairs of samples run on different lanes cluster together (often on top of each other). 
+fac = factor(paste(treatment, lane, sep = ":"))
+colours = brewer.pal(nlevels(fac), "Paired")
+plotMDS(MergedFC, col = colours[as.numeric(fac)],  labels = fac)
+
+
+```
+
+>In my case, I found that I did not have an appreciable lane effects. Therefore, I merged the count data from Lane 1 and Lane 2 together using BAMTools. This is a Linux based software and a batch file to run this code can be found in the folder "MergedBAMFiles" within my OSC supercomputer directory. This will allow you to automate the process of merging BAM files from different lanes. I double checked my resulting spreadsheets to make sure that the counts are added together (and they are) but would encourage future users to do the same. 
+
+
+##Let's get our feature counts
+```{r}
+
+setwd("/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/MergedBAMFiles/")
+
+bam.filesTotal <- list.files(path = "/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/MergedBAMFiles/", pattern = "NM.*.BAM$", full.names = TRUE)
+
+
+
+fc <- featureCounts(bam.filesTotal, annot.ext = "gencode.vM17.annotation.gff3.gz", 
+                         isGTFAnnotationFile = TRUE, nthreads=28, isPairedEnd=TRUE, 
+                         GTF.featureType = "gene", countMultiMappingReads=FALSE)
+
+TotalCounts<-(fc$counts)
+write.table(TotalCounts, file="10192018_TotalCounts.txt")
+write.csv(TotalCounts, file="10192018_TotalCounts.csv")
+```
+
+##Visualizing our raw count data
+```{r}
+treatment = c("Control","Control","Tangerine","Red","Control","Control","Red",
+              "Red","Control","Tangerine","Red","Red","Red","Red","Control",
+              "Control","Red","Control","Control","Tangerine","Tangerine",
+              "Tangerine","Tangerine","Red","Red","Red","Red","Control",
+              "Tangerine","Tangerine","Tangerine","Tangerine","Tangerine",
+              "Control","Tangerine","Control")
+
+TotalFC <- read.table("10192018_TotalCounts.txt", header=T)
+#I'm exporting our count data as a text file so that it can be reimported as a less complicated object in the future. 
+
+###Make an MDS plot labeling "treatment"
+fac = factor(paste(treatment, sep = ":"))
+colours = brewer.pal(nlevels(fac), "Paired")
+plotMDS(TotalFC, col = colours[as.numeric(fac)],  labels = fac)
+
+```
+
+>Mmmk so that doesn't look super exciting... But should it? Our experiment is, more or less, testing whether or not eating tomatoes changes gene expression in the liver. And two of our treatments are slightly different types of tomatoes, at that! From a biology standpoint, I wouldn't expect that a lot of genes (e.g. 1000s) would change in response to diet (and it's probably a good thing they don't). The effects of tomato consumption are probably subtle and not enough to cause our treatments to cluster separately from one another. Therefore, we need to conduct differential expression analyses to see those potential differences. Vamos!
+
+##Preprocessing our data
+```{r}
+setwd("/fs/project/PAS0471/osu10028/DzakovichRNASeq/TrimmedFASTQFiles/MergedBAMFiles/")
+TotalFC <- read.table("10192018_TotalCounts.txt", header=T)
+Class <- read.csv("MouseClassifications.csv", stringsAsFactors = FALSE)
+#The file "MouseClassification.csv" contains treatment information for all mice analyzed in this study
+
+
+group<-paste(Class$Diet)
+samplenames<-paste(Class$Animal_ID)
+group<-factor(group)
+samplenames<-factor(samplenames)
+table(group)
+table(samplenames)
+
+fc <- DGEList(TotalFC, group=group, samples=samplenames, genes=TotalFC[,1,drop=FALSE])
+
+```
+
+###CPM normalization
+```{r}
+#Raw counts are converted to CPM and log-CPM values using the cpm function
+cpm<-cpm(fc)
+lcpm <- cpm(fc, log=TRUE)
+
+
+#Removing genes that are lowly expressed
+table(rowSums(fc$counts==0)) 
+keep.exprs <- rowSums(cpm(fc)>0.23)>=12 
+
+#The first value used (0.23) is calculated based on a rule of thumb (10/Library size in millions) provided in the following guide: https://f1000research.com/articles/5-1438/v2
+#Our library size (in millions) is between 40 and 50 million. Therefore, 10/45 (average) is roughly 0.23. 
+
+#The number 12 specifies number of libraries that a gene needs to be expressed in in order to be kept. I chose >=12 because that would account for situations where a gene is expressed only in one of our treatment groups and in all of the samples within that treatment group. This number could potentially be reduced to be a bit less stringent.
+
+table(keep.exprs)
+fc <- fc[keep.exprs, , keep.lib.sizes=FALSE]
+dim(fc)
+
+```
+
+###Visualizing the effect of filtering our data
+```{r}
+library(RColorBrewer)
+nsamples <- ncol(fc)
+col <- rainbow(nsamples, s = 1, v = 1, start = 0, end = max(1, nsamples - 1)/nsamples, alpha = 1) #brewer.pal(nsamples, "Paired")
+par(mfrow=c(1,2))
+plot(density(lcpm[,1]), col=col[1], lwd=2, ylim=c(0,0.21), las=2, 
+     main="", xlab="")
+title(main="Raw data", xlab="Log-cpm")
+abline(v=0, lty=3)
+for (i in 2:nsamples){
+  den <- density(lcpm[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+samplenames<-colnames(fc)
+#legend("topright", samplenames, text.col=col, bty="n")
+lcpm <- cpm(fc, log=TRUE)
+plot(density(lcpm[,1]), col=col[1], lwd=2, ylim=c(0,0.21), las=2, 
+     main="", xlab="")
+title(main="Filtered data", xlab="Log-cpm")
+abline(v=0, lty=3)
+for (i in 2:nsamples){
+  den <- density(lcpm[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+#legend("topright", samplenames, text.col=col, bty="n")
+```
+
+>So log transforming and filtering our data didn't make our data perfectly normal, but it's a huge improvement. Now to further normalize to account for differences in library sizes, technical error, etc. 
+
+###TMM normalization
+```{r}
+fcUnnormalized<-fc
+
+#TMM normalization
+#Read more here: http://www.rna-seqblog.com/which-method-should-you-use-for-normalization-of-rna-seq-data/
+
+lcpm <- cpm(fcUnnormalized, log=TRUE)
+boxplot(lcpm, las=2, col=col, main="")
+title(main="Unnormalised data",ylab="Log-cpm")
+
+fc2 <- calcNormFactors(fc, method = "TMM")
+
+
+lcpm <- cpm(fc2, log=TRUE)
+boxplot(lcpm, las=2, col=col, main="")
+title(main="Normalised data",ylab="Log-cpm")
+
+
+#write.csv(fc2$counts, file="TMMNormalizedCounts.csv")
+
+```
+>Based on my survey of the literature and talking to people with RNA-Seq experience, TMM normalization is generally viewed as one of the better normalization methods currently available. Looking at the two boxplots, we can see an improvement in normalizing the average counts for each sample. There are a number of outliers, but I was assured that's okay. 
+
+##Differential Expression
+```{r}
+TotalFC_b <- read.table("TMMNormalizedCounts.txt", header=T)
+
+C<-TotalFC_b[,c(1:2,5:6,9,15:16,18:19,28,34,36)]
+T<-TotalFC_b[,c(3,10,20:23,29:33,35)]
+R<-TotalFC_b[,c(4,7:8,11:14,17,24:27)]
+
+TotalFC_b<-data.frame(C,R,T)
+#head(TotalFC_b)
+
+#Since my samples aren't in order of treatment, the steps above assigned the correct treatment to each sample and essentially reorganized everything so that like treatments are near like. Do this is important for contrasts that will be performed later. 
+
+treatment <- c(rep("C", 12), rep("R", 12), rep("T", 12))
+treatment2 <-c(rep("C", 12), rep("T", 24))
+
+#The above two lines of code are again used to assign treatments. The second line is in the event that we want to group both types of tomato together to compare to control. All objects created with the number "2" appended to it are henceforth referring to analyses comparing control to tomato. 
+
+counts<-TotalFC_b 
+cds<-DGEList(counts,group=treatment)
+cds2<-DGEList(counts,group=treatment2)
+
+```
+
+
+###Creating model matrices and estimating dispersion
+```{r}
+mod <- model.matrix(~0+cds$samples$group)
+mod2<- model.matrix(~0+cds2$samples$group)
+
+
+cds <- estimateDisp(cds, design = mod )
+plotBCV(cds, xlab="Average log CPM", ylab="Biological coefficient of variation")
+
+cds2 <- estimateDisp(cds2, design = mod2 )
+plotBCV(cds2, xlab="Average log CPM", ylab="Biological coefficient of variation")
+
+```
+
+>Dispersion is related to sample variance. If the variance was equal to the mean, we'd have a Poisson distribution. But of course it's not. And it never will be. The way our plots look has been deemed to be "good" and I was told that if you see the points curve upward as average log CPM increase, that's bad. I'm still trying to wrap my head around dispersion. Haven't found a concise resource that explains it well so far but will keep looking for my own sake. 
+
+##Fitting genewise negative binomial generalized linear models 
+```{r}
+#Fit GLM QL:
+fit <- glmQLFit(cds, mod)
+
+#Fit GLM QL for Control vs Tomato
+fit2 <-glmQLFit(cds2, mod2)
+
+head(fit$coefficients)
+```
+
+
+##Contrasts between treatments 
+```{r}
+design<-model.matrix(~treatment)
+fit<-glmQLFit(cds,design)
+
+qlfRedVsControl.2vs1<- glmQLFTest(fit, coef = 2)
+topTags(qlfRedVsControl.2vs1)
+DERedControl<-decideTestsDGE(qlfRedVsControl.2vs1)
+plotMD(qlfRedVsControl.2vs1, status=DERedControl, values=c(1,-1), col=c("red","blue"), legend="topright", main="Red Vs. Control")
+
+qlfTangerineVsControl.3vs1<- glmQLFTest(fit, coef = 3)
+topTags(qlfTangerineVsControl.3vs1)
+DETangerineControl<-decideTestsDGE(qlfTangerineVsControl.3vs1)
+plotMD(qlfTangerineVsControl.3vs1, status=DETangerineControl, values=c(1,-1), col=c("red","blue"), legend="topright", main="Tangerine Vs. Control")
+
+qlfTangerineVsRed.3vs2<- glmQLFTest(fit, contrast=c(0,-1,1))
+topTags(qlfTangerineVsRed.3vs2)
+DETangerineRed<-decideTestsDGE(qlfTangerineVsRed.3vs2)
+plotMD(qlfTangerineVsRed.3vs2, status=DETangerineRed, values=c(1,-1), col=c("red","blue"), legend="topright", main="Tangerine Vs. Red")
+
+```
+
+###Control vs Tomato
+```{r}
+design2<-model.matrix(~treatment2)
+fit2<-glmQLFit(cds2,design2)
+qlfTomatoVsControl.2vs1<- glmQLFTest(fit2, coef = 2)
+topTags(qlfTomatoVsControl.2vs1, 10)
+DEControlTomato<-decideTestsDGE(qlfTomatoVsControl.2vs1)
+plotMD(qlfTomatoVsControl.2vs1, status=DEControlTomato, values=c(1,-1), col=c("red","blue"), legend="topright", main="Control vs. Tomato")
+```
+
+##Writing results to CSV files
+```{r}
+DEgenesTomatoControl<-topTags(qlfTomatoVsControl.2vs1, n = Inf, adjust.method = "BH", sort.by = "PValue", p.value = 0.05)
+summary(decideTestsDGE(qlfTomatoVsControl.2vs1, adjust.method = "BH", p.value = 0.05, lfc = 0))
+write.csv(DEgenesTomatoControl$table[abs(DEgenesTomatoControl$table$logFC)>=0,], "DEgenesTomatoControl.csv", sep = "\t", quote = FALSE)
+
+DEgenesTangerineRed<-topTags(qlfTangerineVsRed.3vs2, n = Inf, adjust.method = "BH", sort.by = "PValue", p.value = 0.05)
+summary(decideTestsDGE(qlfTangerineVsRed.3vs2, adjust.method = "BH", p.value = 0.05, lfc = 0))
+write.csv(DEgenesTangerineRed$table[abs(DEgenesTangerineRed$table$logFC)>=0,], "DEgenesTangerineRed.csv", sep = "\t", quote = FALSE)
+
+DEgenesTangerineControl<-topTags(qlfTangerineVsControl.3vs1, n = Inf, adjust.method = "BH", sort.by = "PValue", p.value = 0.05)
+summary(decideTestsDGE(qlfTangerineVsControl.3vs1, adjust.method = "BH", p.value = 0.05, lfc = 0))
+write.csv(DEgenesTangerineControl$table[abs(DEgenesTangerineControl$table$logFC)>=0,], "DEgenesTangerineControl.csv", sep = "\t", quote = FALSE)
+
+DEgenesRedControl<-topTags(qlfRedVsControl.2vs1, n = Inf, adjust.method = "BH", sort.by = "PValue", p.value = 0.05)
+summary(decideTestsDGE(qlfRedVsControl.2vs1, adjust.method = "BH", p.value = 0.05, lfc = 0))
+write.csv(DEgenesRedControl$table[abs(DEgenesRedControl$table$logFC)>=0,], "DEgenesRedControl.csv", sep = "\t", quote = FALSE)
+```
+##Converting Ensembl IDs to MGI IDs
+```{r}
+library('biomaRt')
+
+DEListTangerineRed <- read.csv("DEgenesTangerineRed.csv", stringsAsFactors = FALSE)
+mart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+TangerineRedGenes = DEListTangerineRed$X
+ConvertedTangerineRedGenes = getBM(filters= "ensembl_gene_id_versions", attributes= c("ensembl_gene_id_version",
+"entrezgene", "description"),values=TangerineRedGenes, mart= mart)
+write.csv(ConvertedTangerineRedGenes, file="ConvertedTangerineRedGenes2.csv")
+
+DEListRedControl <- read.csv("DEgenesRedControl.csv", stringsAsFactors = FALSE)
+#mart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+RedControlGenes = DEListRedControl$X
+ConvertedRedControlGenes = getBM(filters= "ensembl_gene_id_version", attributes= c("ensembl_gene_id_version",
+"entrezgene", "description"),values=RedControlGenes ,mart= mart)
+write.csv(ConvertedRedControlGenes, file="ConvertedRedControlGenes.csv")
+
+DEListTangerineControl <- read.csv("DEgenesTangerineControl.csv", stringsAsFactors = FALSE)
+#mart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+TangerineControlGenes = DEListTangerineControl$X
+ConvertedTangerineControlGenes = getBM(filters= "ensembl_gene_id_version", attributes= c("ensembl_gene_id_version",
+"entrezgene", "description"),values=TangerineControlGenes ,mart= mart)
+write.csv(ConvertedTangerineControlGenes, file="ConvertedTangerineControlGenes.csv")
+
+DEListTomatoControl <- read.csv("DEgenesTomatoControl.csv", stringsAsFactors = FALSE)
+#mart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+TomatoControlGenes = DEListTomatoControl$X
+ConvertedTomatoControlGenes = getBM(filters= "ensembl_gene_id_version", attributes= c("ensembl_gene_id_version",
+"entrezgene", "description"),values=TomatoControlGenes ,mart= mart)
+write.csv(ConvertedTomatoControlGenes, file="ConvertedTomatoControlGenes.csv")
+
+
+#DEListLingeringTangerineRed <- read.csv("TangerineRedLingering.csv", stringsAsFactors = FALSE)
+#mart = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+#LingeringTangerineRedGenes = DEListLingeringTangerineRed$ID
+#ConvertedLingeringTangerineRedGenes = getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id",
+#"entrezgene", "description"),values=LingeringTangerineRedGenes, mart= mart)
+#write.csv(ConvertedLingeringTangerineRedGenes, file="ConvertedLingeringTangerineRedGenes.csv")
+
+```
+
+
+
+##Obligatory heatmap that isn't really working
+```{r}
+logcounts <-cpm(fc, log=TRUE)
+boxplot(logcounts, xlab="", ylab="Log2 counts per million",las=2)
+# Let's add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(logcounts),col="blue")
+title("Boxplots of logCPMs (unnormalised)")
+
+TotalFC_c<-as.matrix(TotalFC_b)
+
+var_genes <- apply(TotalFC_c, 1, var)
+head(var_genes)
+select_var <- names(sort(var_genes, decreasing=TRUE))[1:20]
+head(select_var)
+highly_variable_lcpm <- TotalFC_c[select_var,]
+dim(highly_variable_lcpm)
+#head(highly_variable_lcpm)
+
+Class <- read.csv("MouseClassifications.csv", stringsAsFactors = FALSE)
+
+mypalette <- brewer.pal(11,"RdYlBu")
+morecols <- colorRampPalette(mypalette)
+# Set up colour vector for celltype variable
+col.diet <- c("purple","red", "orange")[Class$Diet] #This line doesn't seem to be working right
+
+heatmap.2(highly_variable_lcpm,col=rev(morecols(50)),trace="none", main="Top 20 most variable genes across samples",ColSideColors=col.diet,scale="row")
+#Add in "Rowv = FALSE, Colv = FALSE" to turn off both column and row clustering and to order columns by treatment
+
+```
+
