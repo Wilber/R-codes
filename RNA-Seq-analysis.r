@@ -11,6 +11,9 @@ library('reshape2')
 library('gplots')
 library(Rsubread)
 
+#Adapted largely from: https://f1000research.com/articles/5-1408
+
+
 #For phytopthera
 setwd("/users/PAS0471/osu9657/RNA_Seq_Analysis/Data/chrX_data")
 
