@@ -29,7 +29,10 @@ fastq.files.R2<-list.files(path = "samples2/", pattern = "SL.*_R2.fastq.gz$", fu
 
 #Step 2: Aligning the reads
 #Map paired-end reads:
-align(index="PhytoRsubread_index",readfile1 = fastq.files.R1 ,readfile2 = fastq.files.R2 ,type = "rna", nthreads = 28)
+align(index="PhytoRsubread_index",readfile1 = fastq.files.R1 ,readfile2 = fastq.files.R2 ,type = "rna", nthreads = 28, memory=128000)
+
+#NOTE:Consider mapping with "Subjunc" function, enables exon-spanning and alternative splicing alignment 
+
 
 #Check parameters used in alignment: 
 args(align)
@@ -65,11 +68,25 @@ head(fc$counts)
 cpm <- cpm(fc)
 lcpm <- cpm(fc, log=TRUE)
 
-#Removing genes that are lowly expressed
-table(rowSums(fc$counts==0)==9)
-keep.exprs <- rowSums(cpm>1)>=3
+#####Removing genes that are lowly expressed
+##OPTION 1:
+# get # of genes in this dataset that have zero counts across all nine?? samples.
+table(rowSums(fc$counts==0)==9) ##change 9 to the number of samples you have in your dataset
+keep.exprs <- rowSums(cpm>1)>=3 #Filter by cpm > 1 in 3? or more samples 
 fc <- fc[keep.exprs,, keep.lib.sizes=FALSE]
 dim(fc)
+##OPTION 2:
+#Use the "filterByExpr" edgeR function. By default, the fxn keeps genes with about 10 read counts or more in a 
+#minimum number of samples, where the number of samples is chosen according to the minimum group sample size. 
+#The actual filtering uses CPM values rather than counts in order to avoid giving preference to samples with large library sizes. 
+#For example, if the median library size is about 51 million and 10/51 ≈ 0.2, so the filterByExpr function keeps genes that have a CPM of 0.2 or
+#more in at least three samples. 
+
+keep.exprs <- filterByExpr(fc, group=group)
+x <- x[keep.exprs,, keep.lib.sizes=FALSE]
+dim(x)
+
+
 
 library(RColorBrewer)
 nsamples <- ncol(fc)
