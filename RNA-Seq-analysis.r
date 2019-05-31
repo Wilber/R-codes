@@ -20,7 +20,7 @@ setwd("/users/PAS0471/osu9657/RNA_Seq_Analysis/Data/chrX_data")
 #Step 1: Building an index
 #Must provide a single FASTA file (eg. “genome.fa”)
 #build index
-buildindex(basename="PhytoRsubread_index",reference="genome/Phytophthora_infestans.ASM14294v1.30.dna.genome.fa")
+buildindex(basename="PhytoRsubread_index",reference="genome/Phytophthora_infestans.ASM14294v1.30.dna.genome.fa", memory=128000)
 
 #Load files: 
 fastq.files.R1<-list.files(path = "samples2/", pattern = "SL.*_R1.fastq.gz$", full.names = TRUE)
@@ -29,7 +29,7 @@ fastq.files.R2<-list.files(path = "samples2/", pattern = "SL.*_R2.fastq.gz$", fu
 
 #Step 2: Aligning the reads
 #Map paired-end reads:
-align(index="PhytoRsubread_index",readfile1 = fastq.files.R1 ,readfile2 = fastq.files.R2 ,type = "rna", nthreads = 28, memory=128000)
+align(index="PhytoRsubread_index",readfile1 = fastq.files.R1 ,readfile2 = fastq.files.R2 ,type = "rna", nthreads = 28)
 
 #NOTE:Consider mapping with "Subjunc" function, enables exon-spanning and alternative splicing alignment 
 
