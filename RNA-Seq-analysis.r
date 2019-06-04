@@ -16,6 +16,7 @@ library(Rsubread)
 
 #For phytopthera
 setwd("/users/PAS0471/osu9657/RNA_Seq_Analysis/Data/chrX_data")
+setwd("/users/PAS0107/osu6702/project/samples2")
 
 #Step 1: Building an index
 #Must provide a single FASTA file (eg. “genome.fa”)
