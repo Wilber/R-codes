@@ -293,3 +293,15 @@ write.table(DEgenesPAMA3$table[abs(DEgenesPAMA3$table$logFC)>=1,], "DEgenesPAMA3
 #DEgenesPAMA3<-topTags(qlf, n = 400, adjust.method = "BH", sort.by = "logFC", p.value = 0.05)
 #head(DEgenesPAMA15$table)
 #summary(decideTestsDGE(PAMA15vsPAMA3_qg.qlf))
+
+
+######Annotation of DE genes:
+library("biomaRt")
+#Load protist database
+ensembl<-useMart(biomart = "protists_mart", host = "protists.ensembl.org")
+#List datasets:
+listDatasets(ensembl)
+#Select dataset to use:
+ensembl =  useDataset("pinfestans_eg_gene", mart = ensembl)
+getBM(attributes = c("broad_p_infestans","description"), filters = "broad_p_infestans",values = rownames(DEgenesPAMA3$table), mart = ensembl)
+getBM(attributes = c("broad_p_infestans","description"), filters = "broad_p_infestans",values = , mart = ensembl)
