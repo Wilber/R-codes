@@ -48,6 +48,12 @@ write.table(props,"PhalignmentProportionsRsubread.txt", sep = "\t")
 bam.files <- list.files(path = "samples2/", pattern = "SL.*.BAM$", full.names = TRUE) #Second 
 bam.files <- list.files(path = "samples/", pattern = "SL.*.BAM$", full.names = TRUE)
 
+
+##Reduce the filenames, for aesthetics:
+library(stringr)
+word(bam.files, 6, sep = fixed('_')) #change the number, and the character  
+
+
 #Get feature counts 
 fc <- featureCounts(bam.files, annot.ext = "genome/Phytophthora_infestans.ASM14294v1.30.gtf", 
                     isGTFAnnotationFile = TRUE, nthreads=28, isPairedEnd=TRUE, 
