@@ -311,3 +311,44 @@ listDatasets(ensembl)
 ensembl =  useDataset("pinfestans_eg_gene", mart = ensembl)
 getBM(attributes = c("broad_p_infestans","description"), filters = "broad_p_infestans",values = rownames(DEgenesPAMA3$table), mart = ensembl)
 getBM(attributes = c("broad_p_infestans","description"), filters = "broad_p_infestans",values = , mart = ensembl)
+
+##For Arabidopsis:
+
+##Adapted 
+######Annotation of DE genes:
+install.packages("rlang")
+library("biomaRt")
+listMarts() #list available databases
+
+#Load protist database
+ensembl <- useMart(biomart = "plants_mart",
+                   dataset = "athaliana_eg_gene",
+                   host = "plants.ensembl.org")
+#List datasets:
+listDatasets(ensembl)
+#Select dataset to use:
+#ensembl =  useDataset("pinfestans_eg_gene", mart = ensembl)
+#getBM(attributes = c("broad_p_infestans","description"), filters = "broad_p_infestans",values = rownames(DEgenesPAMA3$table), mart = ensembl)
+features.RA <- getBM(attributes = c("ensembl_gene_id","go_id",
+                                "description"),
+                 filters = c("ensembl_gene_id"),
+                 values = rownames(toptags.RA),
+                 mart = ensembl)
+#examine result
+head (features.RA)
+#Remove blank entries
+features.RA <- features.RA[features.RA$go_id != '',]
+# convert from table format to list format
+geneID2GO <- by(features.RA$go_id,
+                features.RA$ensembl_gene_id,
+                function(x) as.character(x))
+#examine result
+head (geneID2GO)
+
+#create 'topGOdata' object by calling
+go.obj = new("topGOdata", ontology='BP'
+, allGenes = int.genes
+, annot = annFUN.gene2GO
+, gene2GO = geneID2GO)
+        
+
