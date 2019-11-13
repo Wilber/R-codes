@@ -90,8 +90,8 @@ dim(fc)
 #more in at least three samples. 
 
 keep.exprs <- filterByExpr(fc, group=group)
-x <- x[keep.exprs,, keep.lib.sizes=FALSE]
-dim(x)
+fc <- fc[keep.exprs,, keep.lib.sizes=FALSE]
+dim(fc)
 
 
 
